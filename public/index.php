@@ -18,7 +18,6 @@ if (session_status() === PHP_SESSION_NONE) {
     ]);
 }
 
-// 期限切れトークンのクリーンアップ（10%の確率で実行）
 if (rand(1, 10) === 1) {
     RefreshToken::cleanupExpired();
 }
@@ -26,7 +25,6 @@ if (rand(1, 10) === 1) {
 $uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
-// CORSヘッダー
 $allowedOrigins = explode(',', $_ENV['CORS_ALLOWED_ORIGINS'] ?? 'http://localhost');
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
 
@@ -45,16 +43,24 @@ if ($method === 'OPTIONS') {
 
 $authController = new AuthController();
 
-// CSRFトークン取得
 if ($uri === '/api/auth/csrf-token' && $method === 'GET') {
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode(['csrf_token' => CSRFProtection::generateToken()]);
     exit;
 }
 
-// 認証エンドポイント
 if ($uri === '/api/auth/register' && $method === 'POST') {
     $authController->register();
+    exit;
+}
+
+if ($uri === '/api/auth/verify-email' && $method === 'GET') {
+    $authController->verifyEmail();
+    exit;
+}
+
+if ($uri === '/api/auth/resend-verification' && $method === 'POST') {
+    $authController->resendVerification();
     exit;
 }
 
@@ -78,7 +84,6 @@ if ($uri === '/api/auth/me' && $method === 'GET') {
     exit;
 }
 
-// OpenID Connect
 if ($uri === '/api/auth/oidc/login' && $method === 'GET') {
     $authController->oidcLogin();
     exit;
@@ -89,7 +94,6 @@ if ($uri === '/api/auth/oidc/callback' && $method === 'GET') {
     exit;
 }
 
-// SSO
 if ($uri === '/api/auth/sso/login' && $method === 'GET') {
     $authController->ssoLogin();
     exit;
@@ -100,7 +104,6 @@ if ($uri === '/api/auth/sso/callback' && $method === 'GET') {
     exit;
 }
 
-// 404
 http_response_code(404);
 header('Content-Type: application/json; charset=utf-8');
 echo json_encode(['success' => false, 'error' => 'Not Found']);

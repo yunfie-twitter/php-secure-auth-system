@@ -55,6 +55,38 @@ class AuthController
         $this->jsonResponse($result, $result['success'] ? 201 : 400);
     }
 
+    public function verifyEmail(): void
+    {
+        $token = $_GET['token'] ?? '';
+        
+        if (!$token) {
+            $this->jsonResponse(['success' => false, 'errors' => ['トークンが指定されていません']], 400);
+            return;
+        }
+        
+        $result = $this->authService->verifyEmail($token);
+        $this->jsonResponse($result, $result['success'] ? 200 : 400);
+    }
+
+    public function resendVerification(): void
+    {
+        if (!$this->validateCSRF()) {
+            $this->jsonResponse(['success' => false, 'errors' => ['CSRFトークンが無効です']], 400);
+            return;
+        }
+
+        $input = $this->getJsonInput();
+        $email = $input['email'] ?? '';
+        
+        if (!$email) {
+            $this->jsonResponse(['success' => false, 'errors' => ['メールアドレスが指定されていません']], 400);
+            return;
+        }
+        
+        $result = $this->authService->resendVerificationEmail($email);
+        $this->jsonResponse($result, $result['success'] ? 200 : 400);
+    }
+
     public function login(): void
     {
         if (!$this->validateCSRF()) {

@@ -9,13 +9,16 @@ use App\Security\RateLimiter;
 use App\Security\JWTService;
 use App\Security\XSSProtection;
 use App\Security\CSRFProtection;
+use App\Services\EmailService;
+use App\Config\Database;
 
 class AuthService
 {
     public function __construct(
         private PasswordValidator $passwordValidator = new PasswordValidator(),
         private RateLimiter $rateLimiter = new RateLimiter(),
-        private JWTService $jwtService = new JWTService()
+        private JWTService $jwtService = new JWTService(),
+        private EmailService $emailService = new EmailService()
     ) {}
 
     public function register(array $input): array
@@ -39,6 +42,9 @@ class AuthService
         }
 
         $passwordHash = $this->passwordValidator->hash($password);
+        
+        // メール確認トークン生成
+        $verificationToken = bin2hex(random_bytes(32));
 
         $user = User::create([
             'email' => $email,
@@ -46,7 +52,11 @@ class AuthService
             'password_hash' => $passwordHash,
             'display_name' => $displayName,
             'email_verified' => 0,
+            'email_verification_token' => $verificationToken,
         ]);
+
+        // 確認メール送信
+        $this->emailService->sendVerificationEmail($email, $username, $verificationToken);
 
         return [
             'success' => true,
@@ -57,6 +67,74 @@ class AuthService
                 'username' => $user->username,
                 'display_name' => $user->display_name,
             ],
+        ];
+    }
+
+    public function verifyEmail(string $token): array
+    {
+        $db = Database::getConnection();
+        
+        $stmt = $db->prepare('
+            SELECT * FROM users 
+            WHERE email_verification_token = :token 
+            AND email_verified = 0
+            LIMIT 1
+        ');
+        
+        $stmt->execute(['token' => $token]);
+        $userData = $stmt->fetch();
+        
+        if (!$userData) {
+            return ['success' => false, 'errors' => ['無効な確認トークンです']];
+        }
+        
+        // メール確認フラグを更新
+        $stmt = $db->prepare('
+            UPDATE users 
+            SET email_verified = 1, email_verification_token = NULL 
+            WHERE id = :id
+        ');
+        
+        $stmt->execute(['id' => $userData['id']]);
+        
+        return [
+            'success' => true,
+            'message' => 'メールアドレスが確認されました',
+        ];
+    }
+
+    public function resendVerificationEmail(string $email): array
+    {
+        $user = User::findByEmail($email);
+        
+        if (!$user) {
+            return ['success' => false, 'errors' => ['ユーザーが見つかりません']];
+        }
+        
+        if ($user->email_verified) {
+            return ['success' => false, 'errors' => ['このメールアドレスは既に確認済みです']];
+        }
+        
+        // 新しい確認トークン生成
+        $verificationToken = bin2hex(random_bytes(32));
+        
+        $db = Database::getConnection();
+        $stmt = $db->prepare('
+            UPDATE users 
+            SET email_verification_token = :token 
+            WHERE id = :id
+        ');
+        $stmt->execute([
+            'token' => $verificationToken,
+            'id' => $user->id,
+        ]);
+        
+        // 確認メール再送信
+        $this->emailService->sendVerificationEmail($email, $user->username, $verificationToken);
+        
+        return [
+            'success' => true,
+            'message' => '確認メールを再送信しました',
         ];
     }
 
@@ -100,6 +178,7 @@ class AuthService
             'user_id' => $user->id,
             'email' => $user->email,
             'username' => $user->username,
+            'email_verified' => $user->email_verified,
         ]);
 
         $refreshToken = $this->jwtService->createRefreshToken([
@@ -131,7 +210,6 @@ class AuthService
             return ['success' => false, 'errors' => ['リフレッシュトークンが無効または期限切れです']];
         }
 
-        // DBでトークンの有効性を確認
         $tokenRecord = RefreshToken::findByToken($refreshTokenString);
         if (!$tokenRecord) {
             return ['success' => false, 'errors' => ['リフレッシュトークンが無効または期限切れです']];
@@ -142,15 +220,14 @@ class AuthService
             return ['success' => false, 'errors' => ['ユーザーが存在しないか利用できません']];
         }
 
-        // 古いトークンを失効
         $tokenRecord->revoke();
 
-        // 新しいトークンを発行
         $newAccessToken = $this->jwtService->createAccessToken([
             'sub' => $user->uuid,
             'user_id' => $user->id,
             'email' => $user->email,
             'username' => $user->username,
+            'email_verified' => $user->email_verified,
         ]);
 
         $newRefreshToken = $this->jwtService->createRefreshToken([
@@ -158,7 +235,6 @@ class AuthService
             'user_id' => $user->id,
         ]);
 
-        // 新しいリフレッシュトークンを保存
         RefreshToken::create(
             $user->id,
             $newRefreshToken,
@@ -182,14 +258,12 @@ class AuthService
             $decoded = $this->jwtService->validateToken($token, 'access');
             
             if ($decoded && isset($decoded->user_id)) {
-                // リフレッシュトークンが指定されていればそれを失効
                 if ($refreshTokenString) {
                     $tokenRecord = RefreshToken::findByToken($refreshTokenString);
                     if ($tokenRecord && $tokenRecord->user_id === (int)$decoded->user_id) {
                         $tokenRecord->revoke();
                     }
                 } else {
-                    // すべてのリフレッシュトークンを失効
                     RefreshToken::revokeAllForUser((int)$decoded->user_id);
                 }
             }
@@ -223,6 +297,7 @@ class AuthService
                 'email' => $user->email,
                 'username' => $user->username,
                 'display_name' => $user->display_name,
+                'email_verified' => $user->email_verified,
             ],
         ];
     }

@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ダッシュボード - Secure Auth System</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #f3f4f6;
+        }
+
+        .navbar {
+            background: white;
+            padding: 16px 24px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .navbar h1 {
+            color: #667eea;
+            font-size: 24px;
+        }
+
+        .navbar button {
+            padding: 10px 20px;
+            background: #ef4444;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .navbar button:hover {
+            background: #dc2626;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 40px auto;
+            padding: 0 24px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 32px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            margin-bottom: 24px;
+        }
+
+        .card h2 {
+            color: #111827;
+            font-size: 20px;
+            margin-bottom: 16px;
+        }
+
+        .user-info {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 16px;
+        }
+
+        .info-item {
+            padding: 16px;
+            background: #f9fafb;
+            border-radius: 8px;
+            border: 1px solid #e5e7eb;
+        }
+
+        .info-item label {
+            display: block;
+            font-size: 12px;
+            color: #6b7280;
+            text-transform: uppercase;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .info-item p {
+            font-size: 16px;
+            color: #111827;
+            font-weight: 500;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .badge-success {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .badge-warning {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .alert {
+            padding: 16px;
+            border-radius: 8px;
+            margin-bottom: 24px;
+        }
+
+        .alert-warning {
+            background: #fef3c7;
+            color: #92400e;
+            border: 1px solid #fde68a;
+        }
+    </style>
+</head>
+<body>
+    <div class="navbar">
+        <h1>🔐 Secure Auth Dashboard</h1>
+        <button onclick="logout()">ログアウト</button>
+    </div>
+
+    <div class="container">
+        <div id="verificationAlert" class="alert alert-warning" style="display: none;">
+            ⚠️ メールアドレスが未確認です。登録時に送信されたメールのリンクをクリックして確認してください。
+        </div>
+
+        <div class="card">
+            <h2>ユーザー情報</h2>
+            <div class="user-info">
+                <div class="info-item">
+                    <label>ユーザーID</label>
+                    <p id="userId">-</p>
+                </div>
+                <div class="info-item">
+                    <label>UUID</label>
+                    <p id="uuid" style="font-size: 13px;">-</p>
+                </div>
+                <div class="info-item">
+                    <label>メールアドレス</label>
+                    <p id="email">-</p>
+                </div>
+                <div class="info-item">
+                    <label>ユーザー名</label>
+                    <p id="username">-</p>
+                </div>
+                <div class="info-item">
+                    <label>表示名</label>
+                    <p id="displayName">-</p>
+                </div>
+                <div class="info-item">
+                    <label>メール認証状態</label>
+                    <p id="emailVerified">-</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>アクセストークン</h2>
+            <p style="font-family: monospace; font-size: 12px; word-break: break-all; color: #6b7280;" id="accessToken">-</p>
+        </div>
+    </div>
+
+    <script>
+        async function loadUserInfo() {
+            const accessToken = localStorage.getItem('access_token');
+            
+            if (!accessToken) {
+                window.location.href = 'login.html';
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/auth/me', {
+                    headers: {
+                        'Authorization': 'Bearer ' + accessToken
+                    }
+                });
+
+                const data = await response.json();
+
+                if (data.success && data.user) {
+                    document.getElementById('userId').textContent = data.user.id;
+                    document.getElementById('uuid').textContent = data.user.uuid;
+                    document.getElementById('email').textContent = data.user.email;
+                    document.getElementById('username').textContent = data.user.username;
+                    document.getElementById('displayName').textContent = data.user.display_name || '-';
+                    
+                    const verified = data.user.email_verified;
+                    const verifiedBadge = verified 
+                        ? '<span class="badge badge-success">✓ 確認済み</span>'
+                        : '<span class="badge badge-warning">未確認</span>';
+                    document.getElementById('emailVerified').innerHTML = verifiedBadge;
+
+                    if (!verified) {
+                        document.getElementById('verificationAlert').style.display = 'block';
+                    }
+
+                    document.getElementById('accessToken').textContent = accessToken;
+                } else {
+                    // トークンが無効な場合、リフレッシュを試みる
+                    await refreshToken();
+                }
+            } catch (error) {
+                console.error('Error loading user info:', error);
+                window.location.href = 'login.html';
+            }
+        }
+
+        async function refreshToken() {
+            const refreshToken = localStorage.getItem('refresh_token');
+            
+            if (!refreshToken) {
+                window.location.href = 'login.html';
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/auth/refresh', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ refresh_token: refreshToken })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    localStorage.setItem('access_token', data.access_token);
+                    localStorage.setItem('refresh_token', data.refresh_token);
+                    loadUserInfo();
+                } else {
+                    window.location.href = 'login.html';
+                }
+            } catch (error) {
+                window.location.href = 'login.html';
+            }
+        }
+
+        async function logout() {
+            const accessToken = localStorage.getItem('access_token');
+            
+            try {
+                await fetch('/api/auth/logout', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer ' + accessToken
+                    }
+                });
+            } catch (error) {
+                console.error('Logout error:', error);
+            }
+
+            localStorage.removeItem('access_token');
+            localStorage.removeItem('refresh_token');
+            window.location.href = 'login.html';
+        }
+
+        // ページ読み込み時にユーザー情報を取得
+        loadUserInfo();
+    </script>
+</body>
+</html>
